@@ -4,6 +4,7 @@ import os
 import threading
 import uuid
 import time
+import json
 from pathlib import Path
 from collections import deque
 
@@ -11,66 +12,88 @@ app = Flask(__name__)
 
 INPUT_DIR = os.getenv("INPUT_DIR", "/app/input")
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/app/output")
+JOBS_FILE = "/app/jobs.json"
 
-# Cola y estado de jobs
-job_queue = deque()
-jobs = {}
 queue_lock = threading.Lock()
+job_queue = deque()
 is_processing = False
 
 
+def load_jobs():
+    if os.path.exists(JOBS_FILE):
+        with open(JOBS_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+
+def save_jobs(jobs):
+    with open(JOBS_FILE, "w") as f:
+        json.dump(jobs, f)
+
+
 def process_worker():
-    """Worker que procesa jobs de la cola uno a uno."""
     global is_processing
     while True:
         job_id = None
-        with queue_lock:
-            if job_queue:
-                job_id = job_queue.popleft()
+        jobs = load_jobs()
+
+        # Busca el primer job en queued
+        for jid, job in jobs.items():
+            if job["status"] == "queued":
+                job_id = jid
+                break
 
         if job_id is None:
-            time.sleep(2)
+            time.sleep(5)
             continue
 
-        with queue_lock:
-            jobs[job_id]["status"] = "processing"
-            is_processing = True
+        # Marca como processing
+        jobs[job_id]["status"] = "processing"
+        save_jobs(jobs)
+        is_processing = True
 
         input_path = jobs[job_id]["input_path"]
-        output_path = os.path.join(OUTPUT_DIR, f"processed_{job_id}.mp4")
-
+        output_filename = f"processed_{job_id}.mp4"
+        
         result = subprocess.run(
             ["python3", "process.py", "--file", input_path, "--output", OUTPUT_DIR],
             capture_output=True, text=True
         )
 
-        with queue_lock:
-            if result.returncode == 0:
+        jobs = load_jobs()
+        if result.returncode == 0:
+            # Encuentra el archivo generado
+            matches = list(Path(OUTPUT_DIR).glob(f"processed_*"))
+            if matches:
+                latest = max(matches, key=os.path.getctime)
                 jobs[job_id]["status"] = "done"
-                jobs[job_id]["output_path"] = output_path
+                jobs[job_id]["output_path"] = str(latest)
             else:
                 jobs[job_id]["status"] = "error"
-                jobs[job_id]["error"] = result.stderr[-300:]
-            is_processing = False
+                jobs[job_id]["error"] = "Output file not found"
+        else:
+            jobs[job_id]["status"] = "error"
+            jobs[job_id]["error"] = result.stderr[-300:]
 
-        # Limpia el input
+        save_jobs(jobs)
+        is_processing = False
+
         try:
             os.remove(input_path)
         except:
             pass
 
 
-# Arranca el worker en background
 worker_thread = threading.Thread(target=process_worker, daemon=True)
 worker_thread.start()
 
 
 @app.route("/", methods=["GET"])
 def index():
-    with queue_lock:
-        pending = len([j for j in jobs.values() if j["status"] == "queued"])
-        processing = len([j for j in jobs.values() if j["status"] == "processing"])
-        done = len([j for j in jobs.values() if j["status"] == "done"])
+    jobs = load_jobs()
+    pending = len([j for j in jobs.values() if j["status"] == "queued"])
+    processing = len([j for j in jobs.values() if j["status"] == "processing"])
+    done = len([j for j in jobs.values() if j["status"] == "done"])
     return jsonify({
         "status": "online",
         "queue_pending": pending,
@@ -96,56 +119,46 @@ def upload():
     input_path = os.path.join(INPUT_DIR, filename)
     file.save(input_path)
 
-    with queue_lock:
-        jobs[job_id] = {
-            "status": "queued",
-            "input_path": input_path,
-            "output_path": None,
-            "created_at": time.time()
-        }
-        job_queue.append(job_id)
-        position = len(job_queue)
+    jobs = load_jobs()
+    jobs[job_id] = {
+        "status": "queued",
+        "input_path": input_path,
+        "output_path": None,
+        "created_at": time.time()
+    }
+    save_jobs(jobs)
 
     return jsonify({
         "job_id": job_id,
         "status": "queued",
-        "position": position
+        "position": len([j for j in jobs.values() if j["status"] == "queued"])
     }), 200
 
 
 @app.route("/job/<job_id>", methods=["GET"])
 def job_status(job_id):
-    with queue_lock:
-        if job_id not in jobs:
-            return jsonify({"error": "Job not found"}), 404
-        job = jobs[job_id].copy()
-        position = list(job_queue).index(job_id) + 1 if job_id in job_queue else 0
-
+    jobs = load_jobs()
+    if job_id not in jobs:
+        return jsonify({"error": "Job not found"}), 404
+    job = jobs[job_id]
     return jsonify({
         "job_id": job_id,
-        "status": job["status"],
-        "queue_position": position
+        "status": job["status"]
     })
 
 
 @app.route("/download/<job_id>", methods=["GET"])
 def download(job_id):
-    with queue_lock:
-        if job_id not in jobs:
-            return jsonify({"error": "Job not found"}), 404
-        job = jobs[job_id].copy()
+    jobs = load_jobs()
+    if job_id not in jobs:
+        return jsonify({"error": "Job not found"}), 404
 
+    job = jobs[job_id]
     if job["status"] != "done":
-        return jsonify({
-            "error": "Not ready",
-            "status": job["status"]
-        }), 425
+        return jsonify({"error": "Not ready", "status": job["status"]}), 425
 
-    # Busca el archivo procesado
-    output_file = os.path.join(OUTPUT_DIR, f"processed_{job_id}.mp4")
-    
-    # Si no existe con job_id, busca por nombre original
-    if not os.path.exists(output_file):
+    output_file = job.get("output_path")
+    if not output_file or not os.path.exists(output_file):
         matches = list(Path(OUTPUT_DIR).glob(f"processed_*{job_id}*"))
         if not matches:
             return jsonify({"error": "File not found"}), 404
@@ -160,9 +173,8 @@ def clear():
         f.unlink()
     for f in Path(OUTPUT_DIR).glob("*"):
         f.unlink()
-    with queue_lock:
-        job_queue.clear()
-        jobs.clear()
+    if os.path.exists(JOBS_FILE):
+        os.remove(JOBS_FILE)
     return jsonify({"message": "Cleared"}), 200
 
 
