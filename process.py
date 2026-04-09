@@ -7,6 +7,15 @@ import json
 from pathlib import Path
 
 
+def get_duration(filepath: str) -> float:
+    result = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filepath],
+        capture_output=True, text=True
+    )
+    data = json.loads(result.stdout)
+    return float(data["format"]["duration"])
+
+
 def check_metadata(filepath: str):
     result = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filepath],
@@ -29,24 +38,45 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
     flip = options.get("flip", True)
     volume = options.get("volume", round(random.uniform(1.02, 1.08), 3))
     zoom = options.get("zoom", round(random.uniform(0.96, 0.98), 3))
-    noise = options.get("noise", random.randint(1, 3))  # muy sutil: 1-3
+    noise = options.get("noise", random.randint(1, 3))
 
     audio_tempo = round(1 / speed, 4)
 
     # Fecha de creación aleatoria falsa
     fake_date = f"2024-0{random.randint(1,9)}-{random.randint(10,28)}T{random.randint(10,20)}:{random.randint(10,59)}:00Z"
 
+    # Emoji aleatorio de los 3 opciones
+    emojis = ["😍", "🥰", "❤"]
+    emoji = random.choice(emojis)
+
+    # Duración original para calcular el trim
+    try:
+        duration = get_duration(input_path)
+        trim_start = 0.5
+        trim_duration = duration - 1.0  # corta 0.5s inicio y 0.5s final
+    except:
+        trim_start = 0.5
+        trim_duration = None
+
+    # Posición del emoji — esquina inferior derecha, ligeramente dentro
+    # x=w-text_w-30, y=h-text_h-40
+    emoji_filter = (
+        f"drawtext=text='{emoji}'"
+        f":fontsize=38"
+        f":alpha=0.35"
+        f":x=w-tw-30"
+        f":y=h-th-40"
+    )
+
     vf_filters = [
-        # Escala a 9:16
         "scale=1080:1920:force_original_aspect_ratio=decrease",
         "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black",
-        # Espejo
     ]
 
     if flip:
         vf_filters.append("hflip")
 
-    # Zoom ligero aleatorio
+    # Zoom ligero
     vf_filters.append(
         f"crop=iw*{zoom}:ih*{zoom}:(iw-iw*{zoom})/2:(ih-ih*{zoom})/2,scale=1080:1920"
     )
@@ -56,10 +86,11 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
         f"eq=brightness={brightness}:saturation={saturation}:contrast={contrast}"
     )
 
-    # Ruido muy sutil (1-3, imperceptible visualmente)
-    vf_filters.append(
-        f"noise=alls={noise}:allf=t"
-    )
+    # Ruido muy sutil
+    vf_filters.append(f"noise=alls={noise}:allf=t")
+
+    # Emoji sutil esquina inferior derecha
+    vf_filters.append(emoji_filter)
 
     # Velocidad
     vf_filters.append(f"setpts={speed}*PTS")
@@ -69,6 +100,13 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
 
     cmd = [
         "ffmpeg", "-y",
+        "-ss", str(trim_start),
+    ]
+
+    if trim_duration:
+        cmd += ["-t", str(trim_duration)]
+
+    cmd += [
         "-i", input_path,
         "-map_metadata", "-1",
         "-map_chapters", "-1",
@@ -86,6 +124,7 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
     print(f"\nProcessing: {input_path}")
     print(f"  Speed: {speed} | Flip: {flip} | Zoom: {zoom} | Noise: {noise}")
     print(f"  Brightness: {brightness} | Saturation: {saturation} | Contrast: {contrast}")
+    print(f"  Emoji: {emoji} | Trim: {trim_start}s inicio, 0.5s final")
     print(f"  Fake date: {fake_date}")
 
     result = subprocess.run(cmd, capture_output=True, text=True)
