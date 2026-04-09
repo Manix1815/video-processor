@@ -28,6 +28,8 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
     contrast = options.get("contrast", round(random.uniform(1.03, 1.07), 3))
     flip = options.get("flip", True)
     volume = options.get("volume", round(random.uniform(1.02, 1.08), 3))
+    zoom = options.get("zoom", round(random.uniform(0.96, 0.98), 3))
+    noise = options.get("noise", random.randint(1, 3))  # muy sutil: 1-3
 
     audio_tempo = round(1 / speed, 4)
 
@@ -35,16 +37,31 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
     fake_date = f"2024-0{random.randint(1,9)}-{random.randint(10,28)}T{random.randint(10,20)}:{random.randint(10,59)}:00Z"
 
     vf_filters = [
+        # Escala a 9:16
         "scale=1080:1920:force_original_aspect_ratio=decrease",
         "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black",
+        # Espejo
     ]
 
     if flip:
         vf_filters.append("hflip")
 
+    # Zoom ligero aleatorio
+    vf_filters.append(
+        f"crop=iw*{zoom}:ih*{zoom}:(iw-iw*{zoom})/2:(ih-ih*{zoom})/2,scale=1080:1920"
+    )
+
+    # Ajuste de color
     vf_filters.append(
         f"eq=brightness={brightness}:saturation={saturation}:contrast={contrast}"
     )
+
+    # Ruido muy sutil (1-3, imperceptible visualmente)
+    vf_filters.append(
+        f"noise=alls={noise}:allf=t"
+    )
+
+    # Velocidad
     vf_filters.append(f"setpts={speed}*PTS")
 
     vf_string = ",".join(vf_filters)
@@ -67,7 +84,8 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
     ]
 
     print(f"\nProcessing: {input_path}")
-    print(f"  Speed: {speed} | Flip: {flip} | Brightness: {brightness} | Saturation: {saturation}")
+    print(f"  Speed: {speed} | Flip: {flip} | Zoom: {zoom} | Noise: {noise}")
+    print(f"  Brightness: {brightness} | Saturation: {saturation} | Contrast: {contrast}")
     print(f"  Fake date: {fake_date}")
 
     result = subprocess.run(cmd, capture_output=True, text=True)
