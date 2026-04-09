@@ -10,9 +10,9 @@ from collections import deque
 
 app = Flask(__name__)
 
-INPUT_DIR = os.getenv("INPUT_DIR", "/app/input")
-OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/app/output")
-JOBS_FILE = "/app/jobs.json"
+INPUT_DIR = os.getenv("INPUT_DIR", "/app/data/input")
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/app/data/output")
+JOBS_FILE = "/app/data/jobs.json"
 
 queue_lock = threading.Lock()
 job_queue = deque()
@@ -27,6 +27,7 @@ def load_jobs():
 
 
 def save_jobs(jobs):
+    Path(JOBS_FILE).parent.mkdir(parents=True, exist_ok=True)
     with open(JOBS_FILE, "w") as f:
         json.dump(jobs, f)
 
@@ -37,7 +38,6 @@ def process_worker():
         job_id = None
         jobs = load_jobs()
 
-        # Busca el primer job en queued
         for jid, job in jobs.items():
             if job["status"] == "queued":
                 job_id = jid
@@ -47,14 +47,14 @@ def process_worker():
             time.sleep(5)
             continue
 
-        # Marca como processing
         jobs[job_id]["status"] = "processing"
         save_jobs(jobs)
         is_processing = True
 
         input_path = jobs[job_id]["input_path"]
-        output_filename = f"processed_{job_id}.mp4"
-        
+
+        Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+
         result = subprocess.run(
             ["python3", "process.py", "--file", input_path, "--output", OUTPUT_DIR],
             capture_output=True, text=True
@@ -62,8 +62,7 @@ def process_worker():
 
         jobs = load_jobs()
         if result.returncode == 0:
-            # Encuentra el archivo generado
-            matches = list(Path(OUTPUT_DIR).glob(f"processed_*"))
+            matches = list(Path(OUTPUT_DIR).glob("processed_*"))
             if matches:
                 latest = max(matches, key=os.path.getctime)
                 jobs[job_id]["status"] = "done"
