@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""
-TikTok Video Processor
-Applies FFmpeg transformations to prepare videos for reposting.
-Requires explicit permission from original creators before use.
-"""
-
 import os
 import subprocess
 import argparse
@@ -27,9 +21,7 @@ def check_metadata(filepath: str):
 
 
 def process_video(input_path: str, output_path: str, options: dict = {}):
-    """Apply FFmpeg transformations to a video."""
 
-    # Randomize values for each video
     speed = options.get("speed", round(random.uniform(0.94, 0.97), 3))
     brightness = options.get("brightness", round(random.uniform(0.03, 0.07), 3))
     saturation = options.get("saturation", round(random.uniform(1.05, 1.15), 3))
@@ -38,6 +30,9 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
     volume = options.get("volume", round(random.uniform(1.02, 1.08), 3))
 
     audio_tempo = round(1 / speed, 4)
+
+    # Fecha de creación aleatoria falsa
+    fake_date = f"2024-0{random.randint(1,9)}-{random.randint(10,28)}T{random.randint(10,20)}:{random.randint(10,59)}:00Z"
 
     vf_filters = [
         "scale=1080:1920:force_original_aspect_ratio=decrease",
@@ -58,20 +53,22 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
     cmd = [
         "ffmpeg", "-y",
         "-i", input_path,
-        "-map_metadata", "-1",       # Elimina TODOS los metadatos del contenedor
-        "-map_chapters", "-1",        # Elimina capítulos
+        "-map_metadata", "-1",
+        "-map_chapters", "-1",
+        "-metadata", f"creation_time={fake_date}",
         "-vf", vf_string,
         "-af", af_string,
         "-r", "30",
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-c:a", "aac", "-b:a", "128k",
-        "-f", "mp4",                  # Fuerza MP4 estándar (no QuickTime)
+        "-f", "mp4",
         "-movflags", "+faststart",
         output_path
     ]
 
     print(f"\nProcessing: {input_path}")
     print(f"  Speed: {speed} | Flip: {flip} | Brightness: {brightness} | Saturation: {saturation}")
+    print(f"  Fake date: {fake_date}")
 
     result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -85,7 +82,6 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
 
 
 def batch_process(input_dir: str, output_dir: str):
-    """Process all video files in a directory."""
     input_path = Path(input_dir)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -117,8 +113,8 @@ def batch_process(input_dir: str, output_dir: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Batch video processor")
-    parser.add_argument("--input", default="/app/input", help="Input folder")
-    parser.add_argument("--output", default="/app/output", help="Output folder")
+    parser.add_argument("--input", default="/app/data/input", help="Input folder")
+    parser.add_argument("--output", default="/app/data/output", help="Output folder")
     parser.add_argument("--file", help="Process a single file")
     args = parser.parse_args()
 
