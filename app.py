@@ -1,13 +1,9 @@
-"""
-Simple HTTP API for the video processor.
-Allows triggering batch processing via web requests.
-"""
-
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 import subprocess
 import os
 import threading
 from pathlib import Path
+import time
 
 app = Flask(__name__)
 
@@ -34,14 +30,32 @@ def run_processor():
 
 @app.route("/", methods=["GET"])
 def index():
-    input_files = list(Path(INPUT_DIR).glob("*.mp4")) + list(Path(INPUT_DIR).glob("*.mov")) if Path(INPUT_DIR).exists() else []
-    output_files = list(Path(OUTPUT_DIR).glob("*.mp4")) if Path(OUTPUT_DIR).exists() else []
+    input_files = list(Path(INPUT_DIR).glob("*.mp4")) + list(Path(INPUT_DIR).glob("*.mov"))
+    output_files = list(Path(OUTPUT_DIR).glob("*.mp4"))
     return jsonify({
         "status": "online",
         "input_videos": len(input_files),
         "output_videos": len(output_files),
         "processor_running": processing_status["running"]
     })
+
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    """Recibe un video y lo guarda en input."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "Empty filename"}), 400
+
+    Path(INPUT_DIR).mkdir(parents=True, exist_ok=True)
+    filename = f"{int(time.time())}_{file.filename}"
+    filepath = os.path.join(INPUT_DIR, filename)
+    file.save(filepath)
+
+    return jsonify({"message": "Uploaded", "filename": filename}), 200
 
 
 @app.route("/process", methods=["POST"])
@@ -58,6 +72,34 @@ def trigger_process():
 @app.route("/status", methods=["GET"])
 def status():
     return jsonify(processing_status)
+
+
+@app.route("/outputs", methods=["GET"])
+def list_outputs():
+    """Lista los videos procesados disponibles."""
+    files = list(Path(OUTPUT_DIR).glob("*.mp4"))
+    return jsonify({
+        "files": [f.name for f in files]
+    })
+
+
+@app.route("/download/<filename>", methods=["GET"])
+def download(filename):
+    """Descarga un video procesado."""
+    filepath = os.path.join(OUTPUT_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({"error": "File not found"}), 404
+    return send_file(filepath, as_attachment=True)
+
+
+@app.route("/clear", methods=["POST"])
+def clear():
+    """Limpia input y output."""
+    for f in Path(INPUT_DIR).glob("*"):
+        f.unlink()
+    for f in Path(OUTPUT_DIR).glob("*"):
+        f.unlink()
+    return jsonify({"message": "Cleared"}), 200
 
 
 if __name__ == "__main__":
