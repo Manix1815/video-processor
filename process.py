@@ -42,24 +42,19 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
 
     audio_tempo = round(1 / speed, 4)
 
-    # Fecha de creación aleatoria falsa
     fake_date = f"2024-0{random.randint(1,9)}-{random.randint(10,28)}T{random.randint(10,20)}:{random.randint(10,59)}:00Z"
 
-    # Emoji aleatorio de los 3 opciones
     emojis = ["😍", "🥰", "❤"]
     emoji = random.choice(emojis)
 
-    # Duración original para calcular el trim
     try:
         duration = get_duration(input_path)
         trim_start = 0.5
-        trim_duration = duration - 1.0  # corta 0.5s inicio y 0.5s final
+        trim_duration = duration - 1.0
     except:
         trim_start = 0.5
         trim_duration = None
 
-    # Posición del emoji — esquina inferior derecha, ligeramente dentro
-    # x=w-text_w-30, y=h-text_h-40
     emoji_filter = (
         f"drawtext=text='{emoji}'"
         f":fontsize=38"
@@ -76,23 +71,16 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
     if flip:
         vf_filters.append("hflip")
 
-    # Zoom ligero
     vf_filters.append(
         f"crop=iw*{zoom}:ih*{zoom}:(iw-iw*{zoom})/2:(ih-ih*{zoom})/2,scale=1080:1920"
     )
 
-    # Ajuste de color
     vf_filters.append(
         f"eq=brightness={brightness}:saturation={saturation}:contrast={contrast}"
     )
 
-    # Ruido muy sutil
     vf_filters.append(f"noise=alls={noise}:allf=t")
-
-    # Emoji sutil esquina inferior derecha
     vf_filters.append(emoji_filter)
-
-    # Velocidad
     vf_filters.append(f"setpts={speed}*PTS")
 
     vf_string = ",".join(vf_filters)
@@ -113,8 +101,8 @@ def process_video(input_path: str, output_path: str, options: dict = {}):
         "-metadata", f"creation_time={fake_date}",
         "-vf", vf_string,
         "-af", af_string,
-        "-r", "30",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-r", "60",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
         "-c:a", "aac", "-b:a", "128k",
         "-f", "mp4",
         "-movflags", "+faststart",
