@@ -60,7 +60,12 @@ def process_worker():
             capture_output=True, text=True
         )
 
+        # FIX: verificar que el job sigue existiendo tras el procesamiento
         jobs = load_jobs()
+        if job_id not in jobs:
+            is_processing = False
+            continue
+
         if result.returncode == 0:
             matches = list(Path(OUTPUT_DIR).glob("processed_*"))
             if matches:
